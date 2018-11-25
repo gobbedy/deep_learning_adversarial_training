@@ -1,13 +1,5 @@
 #!/bin/bash
 #PBS -A hkq-940-aa
 
-echo BLA
-echo $output_dir
-echo BLU
-echo $python_options
-echo BLE
-echo $python_script
-echo BLI
-
 export PYTHONUNBUFFERED=1
-${python_script} ${python_options} -o ${output_dir}
+${python_script_path} ${python_options}
