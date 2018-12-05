@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import torch
-import torch.nn as nn
+#import torch.nn as nn
 import torchvision.datasets as dsets
 import torchvision.transforms as transforms
 import torch.nn.functional as F
@@ -16,9 +16,161 @@ import argparse
 from torch._six import int_classes as _int_classes
 from torch.utils.data.sampler import Sampler, RandomSampler, BatchSampler
 import math
+import dispy
+import os
+import functools
+from mlp_model import MLP_Regression
+import traceback
+import os.path
+
+ME_DIR = os.path.dirname(os.path.realpath(__file__))
+
+
+#################################################################################################
+############## 1. START OF IDEAS TO IMPROVE ACCURACY OR BUG FIXES ###############################
+#################################################################################################
+
+# TODO: new non-convexity algorithm -- why so many targets are "behind" the adversarial tho? doesnt seem right
+# 1. Find xa as before
+# 2. Find source, target as before
+# 3. Note distance Rt between xa and target -- we know there is a half "n-sphere" around xa of radius R with no target class samples in it
+# 4. Move from xa along direction from ORIGINAL to xa in small increments until hit boundary of sphere
+#    -- at each increment test if still classified as target class.
+#    3 scenarios: 1) every increment classified as target until sphere boundary, then we pick midpoint and deem it ground truth boundary -- use soft labels [NOTE: we could also deep it something closer to original class, but hard to quantify how much)
+#                 2) at some increment, we hit original source class -- then we pick midpoint between this increment and xa and deem it 100% source class ("fill in")
+#                 3) at some incrememnt, we hit a 3rd class -- DO WE JUST IGNORE THIS? No because if scenario 1 becomes "every increment classified as non-source class" -- then what do we pick as soft labels at sphere boundary?
+#                    **so here can pick middle between increment and xa, and deem it 50%/50% between original class and 3rd class**
+
+
+# 1. Find xa, xs, xt as before
+# 2. Find ra, rt
+# 3. Find xm
+
+
+
+
+# "a" is vector from adversarial to target nearest neighbor
+# a = nearest_target_neighbor - adversarial
+#
+# # "b" is vector from vector from original sample to adversarial
+# b = adversarial - image
+
+# R = torch.norm(a)
+
+
+
+
+# TODO: fix test accuracy (why is last decimal always zero?)
+
+
+# TODO: graph original loss, boundary loss, test accuracy (in latex?)
+# TODO: save model, optimizer and scheduler to allow relaunching simulation
+# TODO: switch to adam optimizer
+# TODO: lower learning rate when switching to improve accuracy? -- for now just not changing it instead of increasing
+
+
+#################################################################################################
+############## END OF SPEEDUP IDEAS NOTES (LOWER PRIORITY FOR NOW ###############################
+#################################################################################################
+
+
+
+
+
+#################################################################################################
+############## 2. START OF SPEEDUP IDEAS OR NON-ESSENTIAL FIXES (LOWER PRIORITY FOR NOW) ########
+#################################################################################################
+
+# TODO: switch back to boundary attack after figuring out this bug!! https://github.com/bethgelab/foolbox/issues/243
+# TODO: do nearest neighbor search inside dispy compute function
+# TODO: improve initialization of boundary attack after 1st epoch -- could drastically improve speed
+# TODO: get rid of DataBatchSampler since using nearest neighbor for entire dataset
+# TODO: compute class subsets only once
+# TODO: ask pgiri if it's possible to launch a dispy job on multiple CPUs (ie request multiple CPUs per dispy job)
+    # alternatively, manually tell dispynode how many CPUs there are, and "trick it" by telling it there are few CPUs
+# TODO: use k-nearest neighbor instead of nearest neighbor (slower, less trainning-accurate, but maybe testing accurate)
+# TODO: if keep batch neareset neighbor, discard when sample has no target neighbor(see the TODOs in DataBatchSampler)
+# TODO: make sure that boundary attack returns original images quickly when point is already adversarial. no reason to suspect
+#       if there's an issue refer to aug 29 comment: https://github.com/bethgelab/foolbox/issues/63
+
+#################################################################################################
+############## END OF SPEEDUP IDEAS NOTES (LOWER PRIORITY FOR NOW ###############################
+#################################################################################################
+
+
+
+
+
+
+#################################################################################################
+############## 3. START OF OMP_NUM_THREADS DEBUGGING NOTES ######################################
+#################################################################################################
+
+# TODO: OMP_NUM_THREADS ISSUE MAY BE SOLVED -- NOW QUESTION IS WHY SOMETIMES DOESNT START
+# two working ones so far
+# /scratch/y/yymao/gobbedy/deep_learning/deep_learning/adversarial_project/Nov26_014130
+# /scratch/y/yymao/gobbedy/deep_learning/deep_learning/adversarial_project/Nov26_020753
+
+# ASK pgiri these questions:
+# figure out OMP issue: perhaps I can manually tell dispynode that it has fewer nodes?
+# alternatively, perhaps I can request multiple CPUs per job?
+# OMP: Error #34: System unable to allocate necessary resources for OMP thread:
+# OMP: System error #11: Resource temporarily unavailable
+# OMP: Hint: Try decreasing the value of OMP_NUM_THREADS.
+
+
+
+# TODO: put OMP_NUM_THREADS=1 back, not sure when i removed it!
+# /scratch/y/yymao/gobbedy/deep_learning/deep_learning/adversarial_project/Nov26_015545
+# Above never launched, trying again:
+# /scratch/y/yymao/gobbedy/deep_learning/deep_learning/adversarial_project/Nov26_020753 -- THIS ONE WORKED!
+
+# TODO try setting these to false
+# threaded_rnd : bool
+# threaded_gen : bool
+# trying here: /scratch/y/yymao/gobbedy/deep_learning/deep_learning/adversarial_project/Nov26_014425
+# NOTE: WAS REQUESTED WITHOUT OMP_NUM_THREADS=1
+# WORKED BUT WAS VERY SLOW
+
+#TODO: try requesting this node since it maybe accepts more threads (/scratch/y/yymao/gobbedy/deep_learning/deep_learning/adversarial_project/Nov26_005856/adversarial_project.log)
+# nia0213 (-w nia0213)
+# requested it, log will be here when it launches /scratch/y/yymao/gobbedy/deep_learning/deep_learning/adversarial_project/Nov26_014130
+# job id is 652576
+# NOTE: WAS REQUESTED WITHOUT OMP_NUM_THREADS=1
+
+#################################################################################################
+############## END OF OMP_NUM_THREADS DEBUGGING NOTES ###########################################
+#################################################################################################
+
+
+
+#################################################################################################
+############## 3. START ALGORITHM IDEAS #########################################################
+#################################################################################################
+
+# TODO: use projection along direction from original sample to classification boundary (aka adversarial)?
+
+# "a" is vector from adversarial to target nearest neighbor
+# a = nearest_target_neighbor - adversarial
+#
+# # "b" is vector from vector from original sample to adversarial
+# b = adversarial - image
+#
+# # we find projection of a onto b, ie projection of nearest target in direction of adversarial
+# projection = (torch.dot(a,b) / torch.norm(b)**2) * b
+#
+# true_boundary_images[idx] = projection + adversarial
+
+#################################################################################################
+############## END ALGORITHM IDEAS ##############################################################
+#################################################################################################
+
+
+
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-d", "--dataset_directory", type=str, help="directory where dataset resides", required=True)
+parser.add_argument("-d", "--dataset_directory", type=str, help="directory where dataset resides. Also contains pre-trained model.", required=True)
+#parser.add_argument('-m','--compute_nodes_pythonic', nargs='+', help='python-friendly compute node names', required=True)
 args = parser.parse_args()
 
 # original skeleton of code borrowed from:
@@ -97,32 +249,6 @@ class DataBatchSampler(Sampler):
             # sum of all "minimum class sizes"
             self.unpadded_batch_size += self.class_batch_minimum_size[class_idx]
 
-        '''
-        unpadded_batch_size=0
-        for class_idx, unique_label in enumerate(unique_labels):
-            #self.class_samples[class_idx] = self.data_source[self.labels_source == unique_label]
-
-            # indices of class samples in the dataset as a whole
-            self.class_sample_indices[class_idx] = torch.nonzero(self.labels_source == unique_label)
-            class_sample_indices_sampler = RandomSampler(self.class_sample_indices[class_idx])
-
-            # OLD- REMOVE COMMENT SOON # TODO 1: handle when batch_size/num_classes is not a nice integer
-            # OLD- REMOVE COMMENT SOON # TODO 2: handle when classes are not equi-distributed (then each sampler won't grab exactly batch_size/num_classes samples)
-
-            class_weight = self.class_sample_indices[class_idx].size() / self.data_source.size()
-            class_batch_minimum_size = math.floor(batch_size * class_weight)
-            class_indices_batch_sampler = BatchSampler(class_sample_indices_sampler, class_batch_minimum_size, drop_last)
-
-            # iterates over class sample indices
-            self.class_indices_batch_sampler_iterators[class_idx] = iter(class_indices_batch_sampler)
-
-            unpadded_batch_size += class_batch_minimum_size
-
-        # remaining samples after class sampling
-        num_remaining_samples_per_batch = batch_size - unpadded_batch_size
-        num_remaining_samples = num_remaining_samples_per_batch * len(self) # note len(self) same as num_batches
-        '''
-
     def __iter__(self):
 
         num_batches = len(self)
@@ -172,19 +298,11 @@ class DataBatchSampler(Sampler):
 
                 batch_indices.extend(class_batch_base_indices)
 
-
-                # batch of sample indices -- now indices from the original dataset
-                #class_sample_batch_indices = self.class_sample_indices[class_idx][class_indices_batch_indices]
-                #batch_indices.extend(class_sample_batch_indices)
-
             num_remaining_in_batch = batch_size - self.unpadded_batch_size
             remaining_batch_indices = remaining_indices[batch_idx*num_remaining_in_batch:(batch_idx+1)*num_remaining_in_batch]
 
             batch_indices.extend(remaining_batch_indices)
 
-
-            #print("batch_idx: " + str(batch_idx))
-            #print("len(self): " + str(len(self)))
             yield batch_indices
 
     def __len__(self):
@@ -215,93 +333,85 @@ class CrossEntropyLoss_SoftLabels(Module):
         #return torch.mean(torch.sum(- soft_targets * logsoftmax, self.dim))
         return torch.mean(torch.sum(- soft_targets * logsoftmax, self.dim))
 
+
+def dispy_setup_adversarial(dirpath):
+
+    global directory_path
+    directory_path = dirpath
+
+    global os
+    import os
+    os.environ["OMP_NUM_THREADS"] = "1"
+
+    #global torch, numpy, traceback
+    #import torch
+    #import numpy
+    #import foolbox
+    #import sys
+    #import traceback
+    #sys.path.append(dirpath) # add to python path instead?
+    #from mlp_model import MLP_Regression
+
+    #global attack, images, labels
+    #model = torch.load(dirpath + '/model.torch')
+    #images = torch.load(dirpath + '/images.torch')
+    #labels = torch.load(dirpath + '/labels.torch')
+
+
+    #fmodel = foolbox.models.PyTorchModel(model, bounds=(0, 1), num_classes=10)
+    #attack = foolbox.attacks.BoundaryAttack(fmodel)
+
+
+    #attack = foolbox.attacks.CarliniWagnerL2Attack(fmodel)
+    #attack = foolbox.attacks.FGSM(fmodel)
+
+    return 0
+
+def dispy_compute_adversarial(i):
+
+    try:
+        import torch
+        import foolbox
+        import sys
+        import numpy as np
+        #import os
+
+
+        sys.path.append(directory_path)  # add to python path instead?
+        from mlp_model import MLP_Regression
+
+        model = torch.load(directory_path + '/model.torch')
+        images = torch.load(directory_path + '/images.torch')
+        labels = torch.load(directory_path + '/labels.torch')
+
+        fmodel = foolbox.models.PyTorchModel(model, bounds=(0, 1), num_classes=10)
+        #attack = foolbox.attacks.BoundaryAttack(fmodel)
+        attack = foolbox.attacks.CarliniWagnerL2Attack(fmodel)
+
+        image = images[i].numpy()
+        label = labels[i].numpy()
+        #adversarial = attack(image, label, log_every_n_steps=999999, threaded_rnd=False, threaded_gen=False)
+        adversarial = attack(image, label)
+
+
+        #classification_label = int(np.argmax(fmodel.predictions(image)))
+        #adversarial_label = int(np.argmax(fmodel.predictions(adversarial)))
+
+        ###dispy.logger.info("source label: " + str(label) + ", adversarial_label: " + str(adversarial_label) + ", classification_label: " + str(classification_label))
+
+        #os.environ.pop("OMP_NUM_THREADS")
+
+    except Exception as e:
+        #_dispy_logger.info(traceback.format_exc())
+        return traceback.format_exc()
+    else:
+        return adversarial
+
+
 if __name__ == '__main__':
 
-    '''
-    def cross_entropy(pred, soft_targets):
-        logsoftmax = nn.LogSoftmax(dim=0)
-        return torch.mean(torch.sum(- soft_targets * logsoftmax(pred), 0))
-
-    p_list = torch.tensor([0.3, 0.3, 0.4])
-    q_list = torch.tensor([0.2, 0.7, 0.1])
-
-    softmax = nn.LogSoftmax(dim=0)
-    softmaxed_q_list = softmax(q_list)
-    print("LogSoftmax 1 using pytorch method:")
-    print(softmaxed_q_list)
-
-    print("Cross entropy 1 using pytorch method:")
-    cross_ent = cross_entropy(q_list, p_list)
-    print(cross_ent)
-
-
-    p_list = torch.tensor([0.6, 0.4, 0.0])
-    q_list = torch.tensor([0.5, 0.0, 0.5])
-
-    softmax = nn.LogSoftmax(dim=0)
-    softmaxed_q_list = softmax(q_list)
-    print("LogSoftmax 2 using pytorch method:")
-    print(softmaxed_q_list)
-
-
-    print("Cross entropy 2 using pytorch method:")
-    cross_ent = cross_entropy(q_list, p_list)
-    print(cross_ent)
-
-    p_list = torch.tensor([[0.3, 0.3, 0.4],[0.6, 0.4, 0.0]])
-    q_list = torch.tensor([[0.2, 0.7, 0.1],[0.5, 0.0, 0.5]])
-
-
-    print("Cross entropy using new method:")
-    new_CrossEntropy = CrossEntropyLoss_SoftLabels(dim=1)
-    cross_ent = new_CrossEntropy(q_list, p_list)
-    print(cross_ent)
-    '''
-
-    '''
-    def cross_entropy(pred, soft_targets):
-        logsoftmax = nn.LogSoftmax(dim=0)
-        return torch.mean(torch.sum(- soft_targets * logsoftmax(pred), 0))
-
-
-    p_list = torch.tensor([0.3, 0.3, 0.4])
-    q_list = torch.tensor([0.2, 0.7, 0.1])
-
-    cross_ent = 0
-    softmax = nn.Softmax(dim=0)
-    softmaxed_q_list = softmax(q_list)
-    print("Softmax using pytorch method:")
-    print(softmaxed_q_list)
-    exp_sum = 0
-    for idx, q in enumerate(q_list):
-        exp_sum += np.exp(q)
-
-    for idx, q in enumerate(q_list):
-        softmaxed_q_list[idx] = np.exp(q) / exp_sum
-
-    print("Softmax using hand method:")
-    print(softmaxed_q_list)
-
-    for idx, p in enumerate(p_list):
-        cross_ent -= p_list[idx] * np.log(softmaxed_q_list[idx])
-
-    print("Cross entropy using hand method:")
-    print(cross_ent)
-
-    print("Cross entropy using pytorch method:")
-    cross_ent = cross_entropy(q_list, p_list)
-    print(cross_ent)
-
-
-    print("Cross entropy using new method:")
-    new_CrossEntropy = CrossEntropyLoss_SoftLabels(dim=0)
-    cross_ent = new_CrossEntropy(q_list, p_list)
-    print(cross_ent)
-
-    '''
-
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    #device = 'cpu'
+    #device = 'cuda'
 
     # Hyper Parameters
 
@@ -317,7 +427,7 @@ if __name__ == '__main__':
 
     # heuristically we pick a batch size with an adequate compromise between accurate gradient (larger sample size of
     # datapoints is better) and speed of computation (smaller batch size is better)
-    batch_size = 100
+    batch_size = 80
 
     # tradeoff: precision of
     learning_rate = 0.1
@@ -354,31 +464,10 @@ if __name__ == '__main__':
     # dataset loader: generator that yields input samples each based on rules: yields "batch_size" samples
     # on each call and yields random samples or works its way sequentially thru training dataset depending on "shuffle"
     train_data_batch_sampler = DataBatchSampler(dataset=train_dataset, batch_size=batch_size, drop_last=False)
-    '''
-    batch_sample_iterator = iter(train_data_batch_sampler)
-    indices = []
-    for idx, batch_indices in enumerate(batch_sample_iterator):
-        indices.extend(batch_indices)
-        print(idx)
 
-    indices = np.unique(np.array(indices))
-    real_indices = np.arange(60000)
-
-    np.array_equal(indices, real_indices)
-    '''
-
-    #'''
     train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
                                                batch_sampler=train_data_batch_sampler,
                                                **kwargs)
-    #'''
-
-    '''
-    train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
-                                              batch_size=batch_size,
-                                              shuffle=True,
-                                              **kwargs)
-    '''
 
     # batch size is irrelevant for test_loader, could set it to full test dataset
     test_loader = torch.utils.data.DataLoader(dataset=test_dataset,
@@ -387,53 +476,21 @@ if __name__ == '__main__':
                                               **kwargs)
 
 
-
-    # Model
-    class MLP_Regression(nn.Module):
-        def __init__(self, input_size, num_classes):
-            super(MLP_Regression, self).__init__()
-
-            # crucial line:
-            # calls register_parameters() (via __setattr__), which adds the linear model in the children modules list
-            # the linear model registers its own parameters also via register_parameters()
-            # later, LogisticRegression obj's self.parameters() will recursively find all its children modules' parameters
-            # in our case, this will just be the parametesr of the linear layer
-
-            # In short: this line is critical for keeping track of parameters for gradient descent
-
-            # Note that the below forward function needs to call 'self.linear' and not its own instance of nn.Linear
-            # as otherwise the model would lose track of parameters for gradient descent
-            #self.linear = nn.Linear(in_features=input_size, out_features=num_classes)
-
-            linear1_output_len=120
-            linear2_output_len=84
-            linear3_output_len=num_classes
-
-            self.linear1 = nn.Linear(in_features=input_size, out_features=linear1_output_len)
-            self.linear2 = nn.Linear(in_features=linear1_output_len, out_features=linear2_output_len)
-            self.linear3 = nn.Linear(in_features=linear2_output_len, out_features=linear3_output_len)
-
-        def forward(self, x):
-
-            y1 = F.relu(self.linear1(x))
-            y2 = F.relu(self.linear2(y1))
-            #out = F.relu(self.linear3(y2))
-            out = self.linear3(y2)
-
-            return out
-
-
-    model = MLP_Regression(input_size, num_classes)
-    #model = model.cuda()
-    model.to(device)
+    # load pretrained model if it exists
+    pretrained_model_filepath = ME_DIR + '/pretrained_model.torch'
+    if os.path.isfile(pretrained_model_filepath):
+        model = torch.load(pretrained_model_filepath)
+        model.to(device)
+        adv_training_en=1
+        learning_rate = 0.001
+    else:
+        model = MLP_Regression(input_size, num_classes)
+        model.to(device)
+        adv_training_en=0
 
     # softmax + cross entropy loss
-    #criterion = nn.CrossEntropyLoss()
     criterion = CrossEntropyLoss_SoftLabels(dim=1)
     criterion.to(device)
-
-    #criterion_original = nn.CrossEntropyLoss()
-    #criterion_original.to(device)
 
     # Note that technically this is not just Gradient Descent, not Stochastic Gradient Descent
     # What makes it 'stochastic' or 'not stochastic' is whether we use batch_size == dataset size or not
@@ -447,8 +504,9 @@ if __name__ == '__main__':
 
     #'''
     fmodel = foolbox.models.PyTorchModel(model, bounds=(0, 1), num_classes=10)
+    attack = foolbox.attacks.BoundaryAttack(fmodel)
     #attack = foolbox.attacks.CarliniWagnerL2Attack(fmodel)
-    attack = foolbox.attacks.FGSM(fmodel)
+    #attack = foolbox.attacks.FGSM(fmodel)
     '''
     #train_loader
     im0 = train_dataset.train_data[0]
@@ -483,7 +541,7 @@ if __name__ == '__main__':
     plt.imshow(adversarial.reshape(28, 28))  # ::-1 to convert BGR to RGB
     plt.axis('off')
     
-    plt.subplot(1, 3, 3)
+    plt.subplot(1, 3, 3) bla
     plt.title('Difference')
     difference = (adversarial - im0).reshape(28, 28)
     plt.imshow(difference / abs(difference).max() * 0.2 + 0.5)
@@ -491,13 +549,6 @@ if __name__ == '__main__':
     
     plt.show()
     '''
-
-
-
-
-
-
-
 
 
 
@@ -512,95 +563,273 @@ if __name__ == '__main__':
         # TODO: smarter sampling
         for i, (images, labels) in enumerate(train_loader):
 
-            print("batch: " + str(i))
-
             # 100 images x 784
             images = images.view(-1, 28 * 28)
 
-            #'''
-            #print("BEFORE COMPUTE BATCH OF ADV")
-            true_boundary_images=torch.zeros(batch_size, 28*28)
-            true_boundary_labels=torch.zeros(batch_size, num_classes)
+            if not adv_training_en:
+                soft_labels = torch.eye(num_classes)[labels].to(device)
+                images = images.to(device)
 
-            # TODO 2: start adversarial training much later in simulation
-            # TODO 3: use fast gradient just as a proof of concept to get result
-            #        + compare with goodfellow result (ie just train with adversarial)
-            # TODO 4: check back with foolbox around dec 11 (3 weeks after they said it would be done in 2 weeks)
-            #        for update on batch launch
-            # TODO 5: try on Niagara with a single CPU for 10mins; if it reaches any reasonable fraction
-            # of 6 batches completes, then we know we can get a huge speedup on Niagara
-            # TODO 6: use same parallelization method as used this summer to send across many CPUs on Niagara
-            # TODO 7: verify the logic below a second time (?)
-
-            for idx, image in enumerate(images):
-                adversarial = attack(image.numpy(), labels[idx].numpy())
-
-                #adversarial = attack(image.numpy(), labels[idx].numpy(), binary_search_steps=9,
-                #                     initial_const=1e-3, learning_rate=1e-2)
-
-                # if no adversarial is found, just skip
-                if adversarial is None:
-                    print("Warning: no adversarial was found. Using original image as adversarial.")
-                    adversarial = image.numpy()
+            else:
+                #'''
+                #print("BEFORE COMPUTE BATCH OF ADV")
 
 
-                #adversarial_label = torch.from_numpy(fmodel.predictions(adversarial))
-                adversarial_label = int(np.argmax(fmodel.predictions(adversarial)))
+                #'''
+                ########## FIND BATCH ADVERSARIALS USING DISPY ################
 
-                # pytorch wants it in tensor format
-                adversarial = torch.from_numpy(adversarial)
+                # save model
+                model_filepath = ME_DIR + '/model.torch'
+                torch.save(model, model_filepath)
 
-                # find nearest neighbor in target class
-                target_label = adversarial_label
-                target_images = images[labels==adversarial_label]
+                # save batch of images and labels
+                images_filepath = ME_DIR + '/images.torch'
+                torch.save(images, images_filepath)
+                labels_filepath = ME_DIR + '/labels.torch'
+                torch.save(labels, labels_filepath)
 
-                distances = torch.norm(target_images - adversarial, p=2, dim=1)
-                distances_sorted, sorted_indices = torch.sort(distances, 0)
+                # change working directory temporarily to force JobCluster command to dump in the proper output directory
+                original_working_dir = os.getcwd()
+                os.chdir(ME_DIR + '/dispy')
 
-                # TODO: use range(k) instead of zero here if choose k nearest neighbors
-                nearest_neighbor_indices = sorted_indices[0]
+                # tell dispy where all the compute nodes are and set them up using setup command
+                #cluster = dispy.JobCluster(dispy_compute_adversarial, nodes=args.compute_nodes_pythonic,
+                #                           setup=functools.partial(dispy_setup_adversarial, ME_DIR))
+                cluster = dispy.JobCluster(dispy_compute_adversarial,
+                                           setup=functools.partial(dispy_setup_adversarial, ME_DIR))
+                # cluster = dispy.JobCluster(compute_optimal_portfolio, nodes=["nia1189.scinet.local", ], setup=setup)
 
-                # NOTE: nearest_target_neighbors becomes an array instead of single image if choose k nearest neighbors
-                nearest_target_neighbors=target_images[nearest_neighbor_indices]
+                # return to original working dir to avoid any unintended effects from dir change
+                os.chdir(original_working_dir)
 
+                jobs = []
+                for j in range(len(images)):
+                    # for i in range(10):
+                    job = cluster.submit(j)  # it is sent to a node for executing 'compute'
+                    jobs.append(job)
 
-                # find nearest neighbor in source class
-                source_label = labels[idx]
-                source_images = images[labels==source_label]
-
-                distances = torch.norm(source_images - adversarial, p=2, dim=1)
-                distances_sorted, sorted_indices = torch.sort(distances, 0)
-
-                # TODO: use range(k) instead of zero here if choose k nearest neighbors
-                nearest_neighbor_indices = sorted_indices[0]
-
-                # TODO: nearest_source_neighbors becomes an array instead of single image if choose k nearest neighbors
-                nearest_source_neighbors = source_images[nearest_neighbor_indices]
-
-
-                # find "true boundary" image
-
-                # TODO: use mean of all nearest neighbors if choose k nearest neighbors (where k<1)
-                # aka the code below (has been tested!)
-                # (torch.mean(nearest_target_neighbors,0) + torch.mean(nearest_source_neighbors,0)) / 2
-                true_boundary_images[idx] = (nearest_target_neighbors + nearest_source_neighbors) / 2
-
-                boundary_label_values = torch.tensor([0.5, 0.5])
-                index = torch.tensor([target_label, source_label])
-                true_boundary_labels[idx].scatter_(0, index, boundary_label_values)
+                #adversarials = torch.zeros(len(images))
+                adversarials = [None] * len(images)
+                for idx, job in enumerate(jobs):
+                    job()  # wait for job to finish
+                    if type(job.result) == str:
+                        print(job.result)
+                        exit(1)
+                    else:
+                        #print("Done generating adversarial " + str(idx))
+                        adversarials[idx] = job.result
+                    #print(x)
 
 
-            images = torch.cat((images, true_boundary_images), 0).to(device)
-            #images = images.to(device)
+                cluster.close()
 
-            # above, we made use of 'labels' being integer for indexing;
-            # now that we're making labels a
 
-            soft_labels = torch.eye(num_classes)[labels]
-            soft_labels = torch.cat((soft_labels, true_boundary_labels), 0).to(device)
-            #soft_labels = soft_labels.to(device)
+                ########## END FIND BATCH ADVERSARIALS USING DISPY ################
+                #'''
 
-            #'''
+                print("batch: " + str(i))
+
+                true_boundary_images=torch.zeros(batch_size, 28*28)
+                true_boundary_labels=torch.zeros(batch_size, num_classes)
+
+                # TODO 3: use fast gradient just as a proof of concept to get result
+                #        + compare with goodfellow result (ie just train with adversarial)
+                # TODO 4: check back with foolbox around dec 11 (3 weeks after they said it would be done in 2 weeks)
+                #        for update on batch launch
+                # TODO 5: try on Niagara with a single CPU for 10mins; if it reaches any reasonable fraction
+                # of 6 batches completes, then we know we can get a huge speedup on Niagara
+                # TODO 6: use same parallelization method as used this summer to send across many CPUs on Niagara
+                # TODO 7: verify the logic below a second time (?)
+
+                #for idx, image in enumerate(images):
+
+                for idx, image in enumerate(images):
+
+                    #print("Generating adversarial " + str(idx))
+                    #adversarial = attack(image.numpy(), labels[idx].numpy(), log_every_n_steps=999999)
+
+                    #classification_label = int(np.argmax(fmodel.predictions(image.numpy())))
+                    #adversarial_label = int(np.argmax(fmodel.predictions(adversarial)))
+                    #print("source label: " + str(labels[idx]) + ", adversarial_label: " + str(adversarial_label) + ", classification_label: " + str(classification_label))
+
+                    adversarial = adversarials[idx]
+
+
+                    source_label = labels[idx]
+
+                    #adversarial = attack(image.numpy(), labels[idx].numpy(), binary_search_steps=9,
+                    #                     initial_const=1e-3, learning_rate=1e-2)
+
+                    # if original is misclassified, use original sample as regularizer
+                    if np.array_equal(adversarial, image.numpy()):
+                        print("Warning: original image already misclassified. Using original image as regularizer.")
+                        true_boundary_images[idx] = image
+                        index = torch.tensor([source_label])
+                        true_boundary_labels[idx] = torch.eye(num_classes)[index]
+                        continue
+
+
+                    # if no adversarial is found, use original sample as regularaizre
+                    # if adversarial is None:
+                    #     print("Warning: no adversarial was found. Using original image as regularizer.")
+                    #     true_boundary_images[idx] = image.numpy()
+                    #     index = torch.tensor([source_label])
+                    #     true_boundary_labels[idx] = torch.eye(num_classes)[index]
+                    #     continue
+
+                    if adversarial is None:
+                        print("Warning: no adversarial was found! Using original image as regularizer.")
+                        true_boundary_images[idx] = image
+                        index = torch.tensor([source_label])
+                        true_boundary_labels[idx] = torch.eye(num_classes)[index]
+                        continue
+
+                    adversarial_label = int(np.argmax(fmodel.predictions(adversarial)))
+
+                    # pytorch wants it in tensor format
+                    adversarial = torch.from_numpy(adversarial)
+
+                    # find nearest neighbor in target class
+                    target_label = adversarial_label
+                    #target_images = images[labels==adversarial_label]
+                    # TODO: put train_images[class_idx] outside model
+                    target_images = train_dataset.train_data[train_data_batch_sampler.class_sample_indices[target_label]].view(-1, 28 * 28).float()/255
+
+                    distances = torch.norm(target_images - adversarial, p=2, dim=1)
+                    distances_sorted, sorted_indices = torch.sort(distances, 0)
+
+                    rt = distances_sorted[0]
+
+                    # TODO: use range(k) instead of zero here if choose k nearest neighbors
+                    nearest_neighbor_indices = sorted_indices[0]
+
+                    # NOTE: nearest_target_neighbors becomes an array instead of single image if choose k nearest neighbors
+                    nearest_target_neighbors=target_images[nearest_neighbor_indices]
+
+                    # check that region from adversarial to target are all classified as target label
+                    target = nearest_target_neighbors
+
+
+
+
+
+                    # find nearest neighbor in source class
+
+                    #source_images = images[labels==source_label]
+                    source_images = train_dataset.train_data[train_data_batch_sampler.class_sample_indices[source_label]].view(-1, 28 * 28).float()/255
+
+                    distances = torch.norm(source_images - adversarial, p=2, dim=1)
+                    distances_sorted, sorted_indices = torch.sort(distances, 0)
+
+                    rs = distances_sorted[0]
+
+                    # TODO: use range(k) instead of zero here if choose k nearest neighbors
+                    nearest_neighbor_indices = sorted_indices[0]
+
+
+                    # TODO: nearest_source_neighbors becomes an array instead of single image if choose k nearest neighbors
+                    nearest_source_neighbors = source_images[nearest_neighbor_indices]
+
+
+                    # find "true boundary" image
+
+                    # TODO: use mean of all nearest neighbors if choose k nearest neighbors (where k<1)
+                    # aka the code below (has been tested!)
+                    # (torch.mean(nearest_target_neighbors,0) + torch.mean(nearest_source_neighbors,0)) / 2
+
+
+
+                    num_increments = 100
+                    incremental_shift = (target - adversarial) / num_increments
+                    found_anomaly = 0
+                    for jdx in range(num_increments):
+                        check_sample = adversarial + jdx * incremental_shift
+                        check_label = int(np.argmax(fmodel.predictions(check_sample.numpy())))
+                        if check_label == source_label:
+                            if jdx == 0:
+                                print("ERROR: the adversarial is not actually adversarial.")
+                                print("Target label=" + str(target_label) + ", source label=" + str(
+                                    source_label) + ", check label=" + str(check_label))
+                                exit(1)
+                            elif jdx == 1:
+                                print("Warning: target is in wrong direction. Using original image as regularizer.")
+                                true_boundary_images[idx] = image
+                                index = torch.tensor([source_label])
+                                true_boundary_labels[idx] = torch.eye(num_classes)[index]
+                                continue
+                            else:
+                                print("Warning: Filling in non-convexity! With jdx=" + str(jdx))
+                                print("Target label=" + str(target_label) + ", source label=" + str(
+                                    source_label) + ", check label=" + str(check_label))
+
+
+                            '''
+                            distance_travelled_from_adversarial = float(jdx) * rt
+                            distance_to_move_boundary = distance_travelled_from_adversarial - rs
+                            if distance_to_move_boundary > 0:
+                                true_boundary_images[idx] = adversarial + distance_to_move_boundary * (target - adversarial)/torch.norm(target-adversarial)
+                            else:
+                                true_boundary_images[idx] = adversarial + distance_to_move_boundary * (adversarial - source_images) / torch.norm(adversarial - source_images)
+                            '''
+
+
+                            true_boundary_images[idx] = adversarial + (float(jdx) / 2) * incremental_shift
+                            index = torch.tensor([source_label])
+                            true_boundary_labels[idx] = torch.eye(num_classes)[index]
+                            found_anomaly = 1
+                            break
+                        elif check_label != target_label:
+                            print("Very surpising! Found intercepting class. NEED TO IMPROVE ALGO FOR THIS CASE. With jdx=" + str(jdx))
+                            print("Target label=" + str(target_label) + ", source label=" + str(
+                                source_label) + ", check label=" + str(check_label))
+
+                            # improve this: we have not actually found an intercepting sample, only an intercepting classification region.
+                            # yet we are treating this point as an intercepting sample. can we do better?
+
+
+    #                        true_boundary_images[idx] = adversarial + (float(jdx) / 2) * incremental_shift
+                            '''
+                            distance_travelled_from_adversarial = float(jdx) * rt
+                            distance_to_move_boundary = distance_travelled_from_adversarial - rs
+                            if distance_to_move_boundary > 0:
+                                true_boundary_images[idx] = adversarial + distance_to_move_boundary * (target - adversarial)/torch.norm(target-adversarial)
+                            else:
+                                true_boundary_images[idx] = adversarial + distance_to_move_boundary * (adversarial - source_images) / torch.norm(adversarial - source_images)
+                            '''
+                            true_boundary_images[idx] = adversarial + (float(jdx) / 2) * incremental_shift
+
+
+                            boundary_label_values = torch.tensor([0.5, 0.5])
+                            index = torch.tensor([check_label, source_label])
+                            true_boundary_labels[idx].scatter_(0, index, boundary_label_values)
+                            found_anomaly = 1
+                            break
+
+                    if found_anomaly:
+                        # already computed boundary point and label in if/elif above, can continue with next sample
+                        continue
+
+                    print("Warning: Performing normal regularization")
+                    distance_to_move_boundary = rt - rs
+                    if distance_to_move_boundary > 0:
+                        true_boundary_images[idx] = adversarial + distance_to_move_boundary * (
+                                    target - adversarial) / torch.norm(target - adversarial)
+                    else:
+                        true_boundary_images[idx] = adversarial + distance_to_move_boundary * (
+                                    adversarial - source_images) / torch.norm(adversarial - source_images)
+
+                images = torch.cat((images, true_boundary_images), 0).to(device)
+                #images = images.to(device)
+
+                # above, we made use of 'labels' being integer for indexing;
+                # now that we're making labels a
+
+                original_labels = torch.eye(num_classes)[labels]
+
+                soft_labels = torch.cat((original_labels, true_boundary_labels), 0).to(device)
+                #soft_labels = soft_labels.to(device)
+
+                #'''
 
             #soft_labels = torch.eye(num_classes)[labels].to(device)
             #images = images.to(device)
@@ -618,6 +847,15 @@ if __name__ == '__main__':
             # softmax "layer" + cross entropy loss
             loss = criterion(outputs, soft_labels)
 
+            if adv_training_en:
+                #print(outputs[0:batch_size].size())
+                #print(original_labels.size())
+                #print(outputs[batch_size:].size())
+                #print(boundary_label_values.size())
+
+                original_loss = criterion(outputs[0:batch_size], original_labels)
+                boundary_loss = criterion(outputs[batch_size:], true_boundary_labels)
+
             #loss_original = criterion_original(outputs, labels)
 
             # computed loss gradients wrt to parameters
@@ -626,13 +864,43 @@ if __name__ == '__main__':
             # update parameters (here linear layer parameters) using learning rate + gradients
             optimizer.step()
 
+            if adv_training_en:
+                total=0
+                correct=0
+                for k, (test_images, test_labels) in enumerate(test_loader):
+                    test_images = test_images.view(-1, 28 * 28)
+                    test_images = test_images.to(device)
+
+                    test_labels = test_labels.to(device)
+
+                    # linear layer
+                    outputs = model(test_images)
+
+                    # note that we do not need softmax layer for the decision process, as softmax does not change the
+                    # order the selection (merely amplifies the difference between them) -- picking index corresponding to
+                    # max value is sufficient
+
+                    _, predicted = torch.max(outputs.data, 1)
+                    total += len(test_labels)
+                    correct += (predicted == test_labels).sum()
+
+                print('Test Accuracy: %.3f %%' % (100 * correct.item() / total))
+
+
             # TODO: change end condition?
             #if (i + 1) % 600 == 0:
             if True:
                 lr=optimizer.param_groups[0]['lr']
                 best_loss = scheduler.best
-                print('Best end-of-epoch loss: %.7f, LR: %.4f, Epoch: [%d/%d], Step: [%d/%d], Loss: %.7f'
-                      % (best_loss, lr, epoch + 1, num_epochs, i + 1, len(train_dataset) // batch_size, loss.data.item()))
+
+                if adv_training_en:
+                    print('Best end-of-epoch loss: %.7f, LR: %.4f, Epoch: [%d/%d], Step: [%d/%d], Loss: %.7f, Original Loss: %.7f, Boundary Loss: %.7f'
+                          % (best_loss, lr, epoch + 1, num_epochs, i + 1, len(train_dataset) // batch_size, loss.data.item(), original_loss.data.item(), boundary_loss.data.item()))
+
+                else:
+                    print('Best end-of-epoch loss: %.7f, LR: %.4f, Epoch: [%d/%d], Step: [%d/%d], Loss: %.7f'
+                          % (best_loss, lr, epoch + 1, num_epochs, i + 1, len(train_dataset) // batch_size, loss.data.item()))
+
 
         epoch+=1
 
@@ -644,32 +912,67 @@ if __name__ == '__main__':
         # from start-to-end-of-epoch 3 epochs in a row
         # NOTE TO SELF: BETTER CONDITION WOULD BE CHECKING GRADIENT OF LOSS ITSELF
         if lr < 0.001:
-            break
+
+            total = 0
+            correct = 0
+            for k, (test_images, test_labels) in enumerate(test_loader):
+                test_images = test_images.view(-1, 28 * 28)
+                test_images = test_images.to(device)
+
+                test_labels = test_labels.to(device)
+
+                # linear layer
+                outputs = model(test_images)
+
+                # note that we do not need softmax layer for the decision process, as softmax does not change the
+                # order the selection (merely amplifies the difference between them) -- picking index corresponding to
+                # max value is sufficient
+
+                _, predicted = torch.max(outputs.data, 1)
+                total += len(test_labels)
+                correct += (predicted == test_labels).sum()
+
+            print('Test Accuracy: %.3f %%' % (100 * correct.item() / total))
+
+            if not adv_training_en:
+                # reset scheduler and optimizer
+                optimizer = torch.optim.SGD(model.parameters(), lr=lr * 10)
+                scheduler = lr_rescheduler.ReduceLROnPlateau(optimizer, mode='min', patience=2)
+
+                # save model to skip pre-training in future runs
+                pretrained_model_filepath = args.dataset_directory + '/pretrained_model.torch'
+                torch.save(model, pretrained_model_filepath)
+
+                # enable adversarial training
+                adv_training_en = 1
+
+            else:
+                break
 
 
-    # Test the Model
-    correct = 0
-    total = 0
-
-
-    for i, (images, labels) in enumerate(test_loader):
-
-
-        images = images.view(-1, 28 * 28)
-        images = images.to(device)
-
-        labels = labels.to(device)
-
-        # linear layer
-        outputs = model(images)
-
-
-        # note that we do not need softmax layer for the decision process, as softmax does not change the
-        # order the selection (merely amplifies the difference between them) -- picking index corresponding to
-        # max value is sufficient
-
-        _, predicted = torch.max(outputs.data, 1)
-        total += len(labels)
-        correct += (predicted == labels).sum()
-
-    print('Accuracy of the model on the 10000 test images: %.3f %%' % (100 * correct.item() / total))
+    # # Test the Model
+    # correct = 0
+    # total = 0
+    #
+    #
+    # for i, (images, labels) in enumerate(test_loader):
+    #
+    #
+    #     images = images.view(-1, 28 * 28)
+    #     images = images.to(device)
+    #
+    #     labels = labels.to(device)
+    #
+    #     # linear layer
+    #     outputs = model(images)
+    #
+    #
+    #     # note that we do not need softmax layer for the decision process, as softmax does not change the
+    #     # order the selection (merely amplifies the difference between them) -- picking index corresponding to
+    #     # max value is sufficient
+    #
+    #     _, predicted = torch.max(outputs.data, 1)
+    #     total += len(labels)
+    #     correct += (predicted == labels).sum()
+    #
+    # print('Accuracy of the model on the 10000 test images: %.3f %%' % (100 * correct.item() / total))
